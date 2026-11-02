@@ -5,8 +5,8 @@ import { importFromRemote, type RemoteImportInput } from "@/server/admin/remote-
 import { analyzeRemote, updateYtdlp, type RemoteInfo } from "@/server/media/remote";
 
 /** Đọc thông tin video / playlist từ link (chưa tải gì). */
-export async function analyzeRemoteUrl(url: string) {
-  return adminAction<RemoteInfo>(() => analyzeRemote(url));
+export async function analyzeRemoteUrl(url: string, referer?: string | null) {
+  return adminAction<RemoteInfo>(() => analyzeRemote(url, referer));
 }
 
 /** Tạo phim + xếp video vào hàng đợi tải về; worker tự tải và xử lý. */

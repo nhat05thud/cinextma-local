@@ -21,6 +21,7 @@ import { Icon } from "@iconify/react";
 import { analyzeRemoteUrl, importRemote } from "@/actions/admin/remote";
 import { VIDEO_MODES } from "@/lib/catalog";
 import { formatClock } from "@/lib/format";
+import { BLOB_HELP, isBlobUrl, isMediaUrl } from "@/lib/remote-help";
 import type { RemoteInfo } from "@/server/media/remote";
 
 const QUALITIES = [
@@ -55,6 +56,11 @@ interface RemoteImportProps {
 const RemoteImport: React.FC<RemoteImportProps> = ({ target, onDone }) => {
   const router = useRouter();
   const [url, setUrl] = useState("");
+  const [referer, setReferer] = useState("");
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const blob = isBlobUrl(url);
+  // Link .m3u8/.mp4 copy từ F12 thường cần trang gốc (Referer) và để lấy tên phim
+  const advancedVisible = showAdvanced || isMediaUrl(url) || !!referer;
   const [info, setInfo] = useState<RemoteInfo | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -75,11 +81,11 @@ const RemoteImport: React.FC<RemoteImportProps> = ({ target, onDone }) => {
 
   const analyze = async (event?: React.FormEvent) => {
     event?.preventDefault();
-    if (!url.trim()) return;
+    if (!url.trim() || blob) return;
     setAnalyzing(true);
     setError(null);
     setInfo(null);
-    const result = await analyzeRemoteUrl(url);
+    const result = await analyzeRemoteUrl(url, referer.trim() || null);
     setAnalyzing(false);
     if (!result.success || !result.data) {
       setError(result.message ?? "Không đọc được link này");
@@ -87,6 +93,7 @@ const RemoteImport: React.FC<RemoteImportProps> = ({ target, onDone }) => {
     }
     const data = result.data;
     setInfo(data);
+    if (data.referer) setReferer(data.referer);
     setTitle(data.title);
     setYear(data.year ? String(data.year) : "");
     setOverview(data.description ?? "");
@@ -118,6 +125,7 @@ const RemoteImport: React.FC<RemoteImportProps> = ({ target, onDone }) => {
     setSubmitting(true);
     const result = await importRemote({
       site: info.site,
+      referer: info.referer ?? (referer.trim() || null),
       target: target
         ? { kind: "existing", titleId: target.titleId }
         : kind === "movies"
@@ -157,10 +165,35 @@ const RemoteImport: React.FC<RemoteImportProps> = ({ target, onDone }) => {
           onClear={() => setUrl("")}
           autoFocus={!target}
         />
-        <Button type="submit" color="primary" isLoading={analyzing} isDisabled={!url.trim()}>
+        <Button type="submit" color="primary" isLoading={analyzing} isDisabled={!url.trim() || blob}>
           Phân tích
         </Button>
       </form>
+
+      {blob && (
+        <div className="bg-warning-50 text-warning-700 dark:text-warning rounded-xl p-3 text-sm">
+          <Icon icon="mdi:alert" className="mr-1 inline" />
+          {BLOB_HELP}
+        </div>
+      )}
+
+      {advancedVisible ? (
+        <Input
+          size="sm"
+          label="Trang chứa video (không bắt buộc)"
+          placeholder="https://trang-xem-phim/ten-phim"
+          description="Điền khi dán link .m3u8 / .mp4 lấy từ F12 → Network: dùng để máy chủ video cho phép tải (Referer) và để lấy tên phim, ảnh bìa."
+          value={referer}
+          onValueChange={setReferer}
+          isClearable
+          onClear={() => setReferer("")}
+          startContent={<Icon icon="mdi:web" fontSize={18} />}
+        />
+      ) : (
+        <button type="button" className="text-primary self-start text-xs hover:underline" onClick={() => setShowAdvanced(true)}>
+          + Tuỳ chọn nâng cao (trang chứa video)
+        </button>
+      )}
 
       {analyzing && (
         <div className="text-foreground-500 flex items-center gap-2 text-sm">

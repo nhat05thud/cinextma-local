@@ -7,6 +7,7 @@ import { run } from "./ffmpeg";
 import { JobCancelledError, videoBaseDir } from "./pipeline";
 import { resolveLanguage } from "./subtitles";
 import { parseEpisodeFromName, parseMovieFileName } from "@/lib/filename";
+import { BLOB_HELP, NOT_FOUND_HELP, isBlobUrl } from "@/lib/remote-help";
 
 /*
  * Lấy video từ website khác bằng yt-dlp (hỗ trợ hơn 1000 website + link file video trực tiếp).
@@ -24,6 +25,8 @@ export type RemoteEntry = {
 
 export type RemoteInfo = {
   url: string;
+  /** Trang chứa video, gửi kèm làm Referer khi tải (chống hotlink) */
+  referer: string | null;
   site: string;
   siteKey: string;
   title: string;
@@ -35,7 +38,7 @@ export type RemoteInfo = {
   entries: RemoteEntry[];
 };
 
-export type DownloadOptions = { quality: string; subtitles: boolean };
+export type DownloadOptions = { quality: string; subtitles: boolean; referer?: string | null };
 
 export const QUALITY_FORMATS: Record<string, string> = {
   // H.264 tốt nhất (thường tối đa 1080p): đóng gói HLS trong vài giây, không cần chuyển mã
@@ -73,6 +76,7 @@ const baseArgs = () => {
 };
 
 export const validateRemoteUrl = (raw: string) => {
+  if (isBlobUrl(raw)) throw new Error(BLOB_HELP);
   let url: URL;
   try {
     url = new URL(raw.trim());
@@ -83,11 +87,79 @@ export const validateRemoteUrl = (raw: string) => {
   return url.toString();
 };
 
+/** Nhiều máy chủ video chỉ cho tải khi request kèm trang gốc (chống hotlink). */
+const refererArgs = (referer: string | null | undefined) =>
+  referer ? ["--referer", referer, "--add-header", `Origin:${new URL(referer).origin}`] : [];
+
+const BROWSER_UA =
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36";
+
+const decodeEntities = (text: string) =>
+  text
+    .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(Number(n)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16)))
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;|&apos;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&");
+
+type PageInfo = { title: string | null; image: string | null; description: string | null; media: string[] };
+
+/**
+ * Đọc HTML của trang: tên phim / ảnh / mô tả từ thẻ meta, và các link .m3u8/.mpd/.mp4 lộ trong trang
+ * (kể cả dạng https:\/\/... trong JSON của script). Link do JavaScript tự tạo lúc chạy thì không thấy được.
+ */
+async function readPage(pageUrl: string): Promise<PageInfo | null> {
+  try {
+    const response = await fetch(pageUrl, {
+      headers: { "User-Agent": BROWSER_UA, Accept: "text/html,application/xhtml+xml" },
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!response.ok || !(response.headers.get("content-type") ?? "").includes("html")) return null;
+    const html = (await response.text()).slice(0, 3_000_000);
+    const meta = (name: string) =>
+      (
+        new RegExp(`<meta[^>]+(?:property|name)=["']${name}["'][^>]*content=["']([^"']*)`, "i").exec(html) ??
+        new RegExp(`<meta[^>]+content=["']([^"']*)["'][^>]*(?:property|name)=["']${name}["']`, "i").exec(html)
+      )?.[1] ?? null;
+    const rawTitle = meta("og:title") ?? /<title[^>]*>([^<]*)/i.exec(html)?.[1] ?? null;
+    // "Tên phim - Tên website" / "Tên phim | Website" -> "Tên phim"
+    const title = rawTitle ? decodeEntities(rawTitle).split(/\s+[|–—-]\s+/)[0].trim() || null : null;
+    const image = meta("og:image");
+    const description = meta("og:description") ?? meta("description");
+    const media = [
+      ...new Set(
+        [...html.replace(/\\\//g, "/").matchAll(/https?:\/\/[^\s"'<>\\]+?\.(?:m3u8|mpd|mp4)(?:\?[^\s"'<>\\]*)?/gi)].map((m) =>
+          decodeEntities(m[0]),
+        ),
+      ),
+    ];
+    return {
+      title,
+      image: image ? new URL(decodeEntities(image), pageUrl).toString() : null,
+      description: description ? decodeEntities(description).trim() : null,
+      media,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Ưu tiên playlist HLS tổng (master) > HLS > DASH > MP4. */
+const rankMedia = (links: string[]) =>
+  [...links].sort((a, b) => {
+    const score = (u: string) => (/master\.m3u8/i.test(u) ? 0 : /\.m3u8/i.test(u) ? 1 : /\.mpd/i.test(u) ? 2 : 3);
+    return score(a) - score(b);
+  });
+
 /** Lỗi yt-dlp -> câu thông báo dễ hiểu. */
 const friendlyError = (error: unknown) => {
   const message = error instanceof Error ? error.message : String(error);
   if (/DRM/i.test(message)) return "Video được bảo vệ DRM, không thể tải về.";
-  if (/Unsupported URL/i.test(message)) return "Không tìm thấy video nào ở link này (website chưa được hỗ trợ).";
+  if (/Unsupported URL/i.test(message)) return NOT_FOUND_HELP;
+  if (/HTTP Error 403|Forbidden/i.test(message))
+    return "Máy chủ video từ chối tải (lỗi 403). Điền link trang chứa video vào ô “Trang chứa video” rồi thử lại.";
   if (/Private video|login|sign in|cookies/i.test(message)) return "Video yêu cầu đăng nhập hoặc là video riêng tư.";
   if (/HTTP Error 404|not found/i.test(message)) return "Không tìm thấy trang (lỗi 404).";
   if (/timed? ?out|aborted/i.test(message)) return "Website phản hồi quá lâu, vui lòng thử lại.";
@@ -113,31 +185,49 @@ const bestThumbnail = (entry: YtEntry) =>
   null;
 
 /** Đọc thông tin video / playlist từ link (không tải video). */
-export async function analyzeRemote(raw: string): Promise<RemoteInfo> {
-  const url = validateRemoteUrl(raw);
-  let stdout: string;
-  try {
-    ({ stdout } = await run(
+export async function analyzeRemote(raw: string, refererRaw?: string | null): Promise<RemoteInfo> {
+  let url = validateRemoteUrl(raw);
+  let referer = refererRaw?.trim() ? validateRemoteUrl(refererRaw) : null;
+  let page: PageInfo | null = null;
+
+  const probe = async (target: string) => {
+    const { stdout } = await run(
       serverEnv.ytdlpPath,
-      [...baseArgs(), "-J", "--flat-playlist", "--no-warnings", "--playlist-end", "300", "--", url],
+      [...baseArgs(), ...refererArgs(referer), "-J", "--flat-playlist", "--no-warnings", "--playlist-end", "300", "--", target],
       { signal: AbortSignal.timeout(120_000) },
-    ));
-  } catch (error) {
-    throw new Error(friendlyError(error));
-  }
-  const data = JSON.parse(stdout) as YtEntry & {
-    _type?: string;
-    extractor_key?: string;
-    webpage_url_domain?: string;
-    description?: string;
-    release_year?: number;
-    entries?: YtEntry[];
+    );
+    return JSON.parse(stdout) as YtEntry & {
+      _type?: string;
+      extractor_key?: string;
+      webpage_url_domain?: string;
+      description?: string;
+      release_year?: number;
+      entries?: YtEntry[];
+    };
   };
+
+  let data: Awaited<ReturnType<typeof probe>>;
+  try {
+    data = await probe(url);
+  } catch (error) {
+    if (!/Unsupported URL/i.test(String(error))) throw new Error(friendlyError(error));
+    // yt-dlp không nhận ra trang -> tự dò link video lộ trong HTML, dùng trang làm Referer
+    page = await readPage(url);
+    const found = rankMedia(page?.media ?? [])[0];
+    if (!found) throw new Error(NOT_FOUND_HELP);
+    referer = url;
+    url = found;
+    try {
+      data = await probe(url);
+    } catch (inner) {
+      throw new Error(friendlyError(inner));
+    }
+  }
 
   const siteKey = (data.extractor_key ?? "generic").toLowerCase();
   const site =
     siteKey === "generic"
-      ? `Link trực tiếp (${data.webpage_url_domain ?? new URL(url).hostname})`
+      ? `Link trực tiếp (${referer ? new URL(referer).hostname : (data.webpage_url_domain ?? new URL(url).hostname)})`
       : (SITE_NAMES[siteKey] ?? (data.extractor_key ?? "").replace(/(Tab|Playlist|Channel|User)$/, ""));
   const isPlaylist = data._type === "playlist";
 
@@ -162,13 +252,30 @@ export async function analyzeRemote(raw: string): Promise<RemoteInfo> {
   if (new Set(keys).size !== keys.length) entries.forEach((e, i) => Object.assign(e, { season: 1, episode: i + 1 }));
 
   const cleaned = siteKey === "generic" ? parseMovieFileName(data.title ?? "") : { title: data.title ?? "", year: null };
+  let title = cleaned.title.trim() || "Không tên";
+  let description: string | null = data.description?.trim() || null;
+  let thumbnail: string | null = bestThumbnail(data) ?? entries[0]?.thumbnail ?? null;
+
+  // Link .m3u8/.mp4 thường chỉ tên "index"/"master": lấy tên phim, ảnh, mô tả từ trang chứa video
+  if (siteKey === "generic" && referer) {
+    page ??= await readPage(referer);
+    if (page?.title) {
+      const fromPage = parseMovieFileName(page.title);
+      title = fromPage.title;
+      if (!isPlaylist && entries[0]) entries[0].title = fromPage.title;
+    }
+    description ??= page?.description ?? null;
+    thumbnail ??= page?.image ?? null;
+  }
+
   return {
     url,
+    referer,
     site,
     siteKey,
-    title: cleaned.title.trim() || "Không tên",
-    description: data.description?.trim().slice(0, 3000) || null,
-    thumbnail: bestThumbnail(data) ?? entries[0]?.thumbnail ?? null,
+    title,
+    description: description?.slice(0, 3000) ?? null,
+    thumbnail,
     duration: data.duration ? Math.round(data.duration) : null,
     year: data.release_year ?? cleaned.year ?? null,
     isPlaylist,
@@ -211,6 +318,7 @@ export async function downloadRemoteVideo(videoId: string) {
       serverEnv.ytdlpPath,
       [
         ...baseArgs(),
+        ...refererArgs(options.referer),
         "--no-playlist",
         "--newline",
         "--no-mtime",

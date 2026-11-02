@@ -29,6 +29,8 @@ export type RemoteImportInput = {
   cover: "source" | "auto" | "none";
   subtitles: boolean;
   mode: string;
+  /** Trang chứa video (Referer) khi link là file .m3u8/.mp4 lấy từ F12 */
+  referer?: string | null;
 };
 
 /** Ảnh nguồn lỗi (link hết hạn...) thì bỏ qua, không làm hỏng cả lượt nhập. */
@@ -91,7 +93,11 @@ export async function importFromRemote(input: RemoteImportInput): Promise<{ titl
     }
   }
 
-  const options: DownloadOptions = { quality: input.quality, subtitles: input.subtitles };
+  const options: DownloadOptions = {
+    quality: input.quality,
+    subtitles: input.subtitles,
+    referer: input.referer ? validateRemoteUrl(input.referer) : null,
+  };
   const createVideo = (item: RemoteImportItem) =>
     prisma.video.create({
       data: {
