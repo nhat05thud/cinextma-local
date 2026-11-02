@@ -1,3 +1,5 @@
+"use client";
+
 import { Card, CardHeader, CardBody, CardFooter, Skeleton } from "@heroui/react";
 
 interface PosterCardSkeletonProps {

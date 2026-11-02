@@ -1,3 +1,5 @@
+"use client";
+
 import { OverlayProps } from "@/types/component";
 import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter, Button } from "@heroui/react";
 

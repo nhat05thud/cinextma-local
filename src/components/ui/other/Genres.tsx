@@ -1,31 +1,21 @@
-import { ContentType } from "@/types";
-import { Chip, Link, ChipProps } from "@heroui/react";
-import { Genre } from "tmdb-ts";
+"use client";
+
+import { Chip, ChipProps, Link } from "@heroui/react";
+import type { GenreDTO } from "@/types/dto";
 
 export interface GenresProps {
-  genres: Genre[];
-  type?: ContentType;
+  genres: GenreDTO[];
   chipProps?: Omit<ChipProps, "children" | "as" | "href" | "key">;
 }
 
-const Genres: React.FC<GenresProps> = ({
-  genres,
-  type = "movie",
-  chipProps = {
-    size: "sm",
-    variant: "flat",
-    radius: "full",
-  },
-}) => {
-  return (
-    <div className="flex flex-wrap gap-2">
-      {genres.map(({ id, name }) => (
-        <Chip as={Link} href={`/discover?genres=${id}&content=${type}`} key={id} {...chipProps}>
-          {name}
-        </Chip>
-      ))}
-    </div>
-  );
-};
+const Genres: React.FC<GenresProps> = ({ genres, chipProps = { size: "sm", variant: "flat", radius: "full" } }) => (
+  <div className="flex flex-wrap gap-2">
+    {genres.map(({ slug, name }) => (
+      <Chip as={Link} href={`/discover?genre=${slug}`} key={slug} {...chipProps}>
+        {name}
+      </Chip>
+    ))}
+  </div>
+);
 
 export default Genres;

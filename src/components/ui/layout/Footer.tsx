@@ -1,42 +1,43 @@
 "use client";
 
 import { siteConfig } from "@/config/site";
+import { useSite } from "@/components/providers/SiteProvider";
 import { cn } from "@/utils/helpers";
-import { BreadcrumbItem, Breadcrumbs, Link } from "@heroui/react";
+import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { FaGithub } from "react-icons/fa6";
+import BrandLogo from "../other/BrandLogo";
 
-interface FooterProps {
-  className?: string;
-}
-
-const Footer: React.FC<FooterProps> = ({ className }) => {
+const Footer: React.FC<{ className?: string }> = ({ className }) => {
   const pathName = usePathname();
+  const { settings } = useSite();
+  if (pathName.includes("/player") || pathName.startsWith("/auth")) return null;
 
   return (
     <footer
       className={cn(
-        "bottom-0 flex w-full flex-col items-center justify-center gap-2 p-2 text-center",
+        "border-secondary-background mt-16 flex w-full flex-col items-center justify-center gap-3 border-t px-4 py-8 text-center",
         className,
       )}
     >
-      <h6>{siteConfig.description}</h6>
-      <Link isExternal href={siteConfig.socials.github} color="foreground">
-        <FaGithub size={24} />
-      </Link>
-      <Breadcrumbs
-        separator="•"
-        itemClasses={{
-          separator: "px-2",
-        }}
-      >
+      <BrandLogo className="text-xl md:text-2xl" />
+      <p className="text-foreground-500 max-w-xl text-sm">{settings.siteDescription}</p>
+      <nav className="flex flex-wrap justify-center gap-x-5 gap-y-2 text-sm">
         {siteConfig.navItems.map(({ label, href }) => (
-          <BreadcrumbItem key={href} isCurrent={pathName === href} href={href}>
+          <Link
+            key={href}
+            href={href}
+            className={cn("hover:text-primary transition-colors", pathName === href && "text-primary font-semibold")}
+          >
             {label}
-          </BreadcrumbItem>
+          </Link>
         ))}
-      </Breadcrumbs>
-      <p>© 2024 Wisnu Wirayuda</p>
+        <Link href="/about" className="hover:text-primary transition-colors">
+          Giới thiệu
+        </Link>
+      </nav>
+      <p className="text-foreground-400 text-xs">
+        © {new Date().getFullYear()} {settings.footerText}
+      </p>
     </footer>
   );
 };

@@ -1,3 +1,5 @@
+"use client";
+
 import { InputWrapperProps } from "@/types/component";
 import { isEmpty } from "@/utils/helpers";
 import { Input, Button, ButtonProps, ButtonGroup, cn } from "@heroui/react";

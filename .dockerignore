@@ -1,0 +1,10 @@
+node_modules
+.next
+data
+storage
+logs
+.env
+.env*.local
+deploy/iis/site
+*.log
+.git

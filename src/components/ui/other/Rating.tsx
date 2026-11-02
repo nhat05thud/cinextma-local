@@ -1,3 +1,5 @@
+"use client";
+
 import { formatNumber } from "@/utils/helpers";
 import { Star } from "@/utils/icons";
 

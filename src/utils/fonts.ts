@@ -1,9 +1,10 @@
-import { Poppins as FontPoppins, Saira as FontSaira } from "next/font/google";
+import { Be_Vietnam_Pro, Saira as FontSaira } from "next/font/google";
 
-export const Poppins = FontPoppins({
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
-  variable: "--font-poppins",
+// Be Vietnam Pro hỗ trợ đầy đủ dấu tiếng Việt (Poppins của template thì không).
+export const BeVietnam = Be_Vietnam_Pro({
+  subsets: ["latin", "vietnamese"],
+  weight: ["400", "500", "600", "700", "800"],
+  variable: "--font-be-vietnam",
 });
 
 export const Saira = FontSaira({

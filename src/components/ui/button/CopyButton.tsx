@@ -18,7 +18,7 @@ const CopyButton: React.FC<CopyButtonProps> = ({
   text,
   timeout = 2000,
   label,
-  copiedLabel = "Copied to clipboard!",
+  copiedLabel = "Đã sao chép!",
   onCopied,
 }) => {
   const { copy, copied } = useClipboard({ timeout });

@@ -17,11 +17,12 @@ const TopNavbar = () => {
   const pathName = usePathname();
   const [{ y }] = useWindowScroll();
   const opacity = Math.min((y / 1000) * 5, 1);
-  const hrefs = siteConfig.navItems.map((item) => item.href);
-  const show = hrefs.includes(pathName);
-  const tv = pathName.includes("/tv/");
+  const show = siteConfig.navItems.some((item) => item.href === pathName);
+  // Trang chủ có hero banner tràn lên dưới navbar nên navbar trong suốt khi ở đầu trang
+  const transparent = !show || pathName === "/";
+  const tv = pathName.startsWith("/tv/");
   const player = pathName.includes("/player");
-  const auth = pathName.includes("/auth");
+  const auth = pathName.startsWith("/auth");
 
   if (auth || player) return null;
 
@@ -32,27 +33,17 @@ const TopNavbar = () => {
       position="sticky"
       maxWidth="full"
       classNames={{ wrapper: "px-2 md:px-4" }}
-      className={cn("inset-0 h-min bg-transparent", {
-        "bg-background": show,
-      })}
+      className={cn("inset-0 h-min bg-transparent", { "bg-background": !transparent })}
     >
-      {!show && (
-        <div
-          className="border-background bg-background absolute inset-0 h-full w-full border-b"
-          style={{ opacity: opacity }}
-        />
+      {transparent && (
+        <div className="bg-background absolute inset-0 h-full w-full" style={{ opacity }} />
       )}
-      <NavbarBrand>
-        {show ? <BrandLogo /> : <BackButton href={tv ? "/?content=tv" : "/"} />}
-      </NavbarBrand>
+      <NavbarBrand>{show ? <BrandLogo /> : <BackButton href={tv ? "/series" : "/"} />}</NavbarBrand>
       {show && !pathName.startsWith("/search") && (
         <NavbarContent className="hidden w-full max-w-lg gap-2 md:flex" justify="center">
           <NavbarItem className="w-full">
             <Link href="/search" className="w-full">
-              <SearchInput
-                className="pointer-events-none"
-                placeholder="Search your favorite movies..."
-              />
+              <SearchInput className="pointer-events-none" placeholder="Tìm phim, diễn viên..." />
             </Link>
           </NavbarItem>
         </NavbarContent>

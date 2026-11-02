@@ -1,10 +1,8 @@
-import { signOut } from "@/actions/auth";
-import useBreakpoints from "@/hooks/useBreakpoints";
-import useSupabaseUser from "@/hooks/useSupabaseUser";
-import { DropdownItemProps } from "@/types/component";
-import { env } from "@/utils/env";
-import { Gear, Logout, User } from "@/utils/icons";
-import { useRouter } from "@bprogress/next/app";
+"use client";
+
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
 import {
   addToast,
   Avatar,
@@ -12,93 +10,79 @@ import {
   Dropdown,
   DropdownItem,
   DropdownMenu,
+  DropdownSection,
   DropdownTrigger,
-  Spinner,
 } from "@heroui/react";
-import Link from "next/link";
-import { useMemo, useState } from "react";
+import { Icon } from "@iconify/react";
+import { authClient } from "@/lib/auth-client";
+import { useCurrentUser } from "@/components/providers/SiteProvider";
+import useBreakpoints from "@/hooks/useBreakpoints";
+import { User } from "@/utils/icons";
 
 const UserProfileButton: React.FC = () => {
+  const user = useCurrentUser();
   const router = useRouter();
-  const [logout, setLogout] = useState(false);
-  const { data: user, isLoading } = useSupabaseUser();
   const { mobile } = useBreakpoints();
+  const [loggingOut, setLoggingOut] = useState(false);
 
-  const ITEMS: DropdownItemProps[] = useMemo(
-    () => [
-      // TODO: Add profile and settings page
-      // { label: "Profile", href: "/profile", icon: <User /> },
-      // { label: "Settings", href: "/settings", icon: <Gear /> },
-      {
-        label: "Logout",
-        onClick: async () => {
-          if (logout) return;
-          setLogout(true);
-          const { success, message } = await signOut();
-          addToast({
-            title: message,
-            color: success ? "primary" : "danger",
-          });
-          if (!success) {
-            return setLogout(false);
-          }
-          return router.push("/auth");
-        },
-        icon: logout ? <Spinner size="sm" color="danger" /> : <Logout />,
-        color: "danger",
-        className: "text-danger",
-      },
-    ],
-    [logout],
-  );
+  if (!user) {
+    return (
+      <Button as={Link} href="/auth" variant="light" isIconOnly={mobile} title="Đăng nhập" className="min-w-fit">
+        {mobile ? <User className="text-xl" /> : "Đăng nhập"}
+      </Button>
+    );
+  }
 
-  if (isLoading) return null;
-
-  const guest = !user;
-  const avatar = `${env.NEXT_PUBLIC_AVATAR_PROVIDER_URL}${user?.email}`;
-
-  const ProfileButton = (
-    <Button
-      title={guest ? "Login" : user.username}
-      variant="light"
-      href={guest ? "/auth" : undefined}
-      as={guest ? Link : undefined}
-      isIconOnly={guest || mobile}
-      endContent={
-        !guest ? (
-          <Avatar
-            showFallback
-            src={avatar}
-            className="size-7"
-            fallback={<User className="text-xl" />}
-          />
-        ) : undefined
-      }
-      className="min-w-fit"
-    >
-      {guest ? (
-        <User className="text-xl" />
-      ) : (
-        <p className="hidden max-w-32 truncate md:block lg:max-w-56">{user.username}</p>
-      )}
-    </Button>
-  );
-
-  if (guest) return ProfileButton;
+  const logout = async () => {
+    setLoggingOut(true);
+    await authClient.signOut();
+    addToast({ title: "Đã đăng xuất", color: "primary" });
+    router.push("/");
+    router.refresh();
+  };
 
   return (
-    <Dropdown showArrow closeOnSelect={false} className="w-10">
-      <DropdownTrigger className="w-10">{ProfileButton}</DropdownTrigger>
-      <DropdownMenu
-        aria-label="User profile dropdown"
-        variant="flat"
-        disabledKeys={logout ? ITEMS.map((i) => i.label) : undefined}
-      >
-        {ITEMS.map(({ label, icon, ...props }) => (
-          <DropdownItem key={label} startContent={icon} {...props}>
-            {label}
+    <Dropdown showArrow placement="bottom-end">
+      <DropdownTrigger>
+        <Button
+          variant="light"
+          isIconOnly={mobile}
+          className="min-w-fit"
+          endContent={
+            <Avatar
+              showFallback
+              name={user.name}
+              src={user.image ?? undefined}
+              className="size-7"
+              fallback={<User className="text-xl" />}
+            />
+          }
+        >
+          {!mobile && <span className="max-w-40 truncate">{user.name}</span>}
+        </Button>
+      </DropdownTrigger>
+      <DropdownMenu aria-label="Tài khoản" variant="flat" disabledKeys={loggingOut ? ["logout"] : []}>
+        <DropdownSection showDivider title={user.email}>
+          <DropdownItem key="library" href="/library" startContent={<Icon icon="mdi:folder-play" />}>
+            Thư viện của tôi
           </DropdownItem>
-        ))}
+          {user.isAdmin ? (
+            <DropdownItem key="admin" href="/admin" startContent={<Icon icon="mdi:shield-crown" />} color="warning">
+              Trang quản trị
+            </DropdownItem>
+          ) : null}
+        </DropdownSection>
+        <DropdownSection>
+          <DropdownItem
+            key="logout"
+            color="danger"
+            className="text-danger"
+            startContent={<Icon icon="mdi:logout" />}
+            onPress={logout}
+          >
+            Đăng xuất
+          </DropdownItem>
+        </DropdownSection>
       </DropdownMenu>
     </Dropdown>
   );

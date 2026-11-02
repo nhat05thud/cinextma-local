@@ -2,21 +2,11 @@
 
 import useEmblaCarousel from "embla-carousel-react";
 import { EmblaOptionsType, EmblaPluginType } from "embla-carousel";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 /**
- * Custom hook that provides carousel functionality using Embla Carousel.
- *
- * @param {EmblaOptionsType} [options] - Optional configuration options for the Embla Carousel.
- * @param {EmblaPluginType[]} [plugins] - Optional array of plugins to enhance the carousel.
- * @returns {object} An object containing:
- * - `emblaRef`: Ref to attach to the carousel container.
- * - `scrollTo`: Function to scroll to a specific index.
- * - `scrollNext`: Function to scroll to the next item.
- * - `scrollPrev`: Function to scroll to the previous item.
- * - `selectedIndex`: The current selected index of the carousel.
- * - `canScrollNext`: Boolean indicating if the carousel can scroll to the next item.
- * - `canScrollPrev`: Boolean indicating if the carousel can scroll to the previous item.
+ * Custom hook bọc Embla Carousel: trả về ref gắn vào viewport, các hàm cuộn
+ * và trạng thái có thể cuộn trái/phải (cập nhật theo sự kiện của embla).
  */
 export const useCustomCarousel = (options?: EmblaOptionsType, plugins?: EmblaPluginType[]) => {
   const [emblaRef, embla] = useEmblaCarousel(options, plugins);
@@ -29,13 +19,18 @@ export const useCustomCarousel = (options?: EmblaOptionsType, plugins?: EmblaPlu
   const scrollPrev = useCallback(() => embla && embla.scrollPrev(), [embla]);
   const scrollNext = useCallback(() => embla && embla.scrollNext(), [embla]);
 
-  if (embla) {
-    embla.on("select", () => {
+  useEffect(() => {
+    if (!embla) return;
+    const update = () => {
       setCanScrollPrev(embla.canScrollPrev());
       setCanScrollNext(embla.canScrollNext());
       setSelectedIndex(embla.selectedScrollSnap());
-    });
-  }
+    };
+    embla.on("init", update).on("reInit", update).on("select", update);
+    return () => {
+      embla.off("init", update).off("reInit", update).off("select", update);
+    };
+  }, [embla]);
 
   return { emblaRef, scrollTo, scrollNext, scrollPrev, selectedIndex, canScrollNext, canScrollPrev };
 };

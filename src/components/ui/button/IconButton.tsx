@@ -1,3 +1,5 @@
+"use client";
+
 import { Tooltip, Button, ButtonProps, TooltipProps } from "@heroui/react";
 import { Icon } from "@iconify/react";
 import Link from "next/link";

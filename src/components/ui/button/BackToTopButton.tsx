@@ -23,7 +23,7 @@ const BackToTopButton: React.FC = () => {
         variant="shadow"
         color="primary"
         className="motion-preset-focus"
-        tooltip="Back to top"
+        tooltip="Lên đầu trang"
         tooltipProps={{ placement: "left" }}
         radius="full"
         size="lg"

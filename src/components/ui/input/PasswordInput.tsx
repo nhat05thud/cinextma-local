@@ -1,3 +1,5 @@
+"use client";
+
 import { Check, Close, Eye, EyeOff } from "@/utils/icons";
 import { Input, Progress } from "@heroui/react";
 import { useDisclosure } from "@mantine/hooks";
@@ -6,10 +8,10 @@ import IconButton from "../button/IconButton";
 import { cn } from "@/utils/helpers";
 
 const requirements = [
-  { re: /[0-9]/, label: "Includes number" },
-  { re: /[a-z]/, label: "Includes lowercase letter" },
-  { re: /[A-Z]/, label: "Includes uppercase letter" },
-  { re: /[$&+,:;=?@#|'<>.^*()%!-]/, label: "Includes special symbol" },
+  { re: /[0-9]/, label: "Có chữ số" },
+  { re: /[a-z]/, label: "Có chữ thường" },
+  { re: /[A-Z]/, label: "Có chữ hoa" },
+  { re: /[$&+,:;=?@#|'<>.^*()%!-]/, label: "Có ký tự đặc biệt" },
 ];
 
 const getStrength = (password: string): number => {
@@ -32,6 +34,7 @@ const PasswordRequirement = memo(({ meets, label }: { meets: boolean; label: str
     </p>
   );
 });
+PasswordRequirement.displayName = "PasswordRequirement";
 
 type PasswordInputProps = Omit<React.ComponentProps<typeof Input>, "type" | "endContent"> & {
   withStrengthMeter?: boolean;
@@ -85,13 +88,13 @@ const PasswordInput = forwardRef<HTMLInputElement, PasswordInputProps>(
             )}
           >
             <Progress
-              aria-label="Password strength meter"
+              aria-label="Độ mạnh mật khẩu"
               color={color}
               value={strength}
               className="mb-4"
             />
             <PasswordRequirement
-              label="Includes at least 8 characters"
+              label="Ít nhất 8 ký tự"
               meets={((props.value as string) || "").length > 7}
             />
             {checks}

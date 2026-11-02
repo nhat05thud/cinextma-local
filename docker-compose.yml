@@ -1,0 +1,20 @@
+# Chạy trên server Linux: docker compose up -d --build
+# Đặt reverse proxy có HTTPS (Caddy / Nginx / Cloudflare Tunnel) trước cổng 3000.
+services:
+  web:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: file:/data/db/cinextma.db
+      MEDIA_ROOT: /data/media
+      FFMPEG_PATH: /usr/bin/ffmpeg
+      FFPROBE_PATH: /usr/bin/ffprobe
+      YTDLP_PATH: /usr/local/bin/yt-dlp
+      DENO_PATH: /usr/local/bin/deno
+      VIDEO_ENCODER: libx264
+    volumes:
+      - ./data:/data/db
+      - ./storage:/data/media
+    ports:
+      - "127.0.0.1:3000:3000"

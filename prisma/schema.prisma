@@ -1,0 +1,358 @@
+// Đổi provider sang "postgresql" (và adapter trong src/server/db.ts) khi deploy lên internet.
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+// ============================================================================
+// Auth (Better Auth + admin plugin)
+// ============================================================================
+
+model User {
+  id            String          @id
+  name          String
+  email         String          @unique
+  emailVerified Boolean         @default(false)
+  image         String?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  role          String?         @default("user")
+  banned        Boolean?        @default(false)
+  banReason     String?
+  banExpires    DateTime?
+  sessions      Session[]
+  accounts      Account[]
+  watchlist     WatchlistItem[]
+  histories     WatchHistory[]
+
+  @@map("user")
+}
+
+model Session {
+  id             String   @id
+  expiresAt      DateTime
+  token          String   @unique
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  ipAddress      String?
+  userAgent      String?
+  userId         String
+  impersonatedBy String?
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("session")
+}
+
+model Account {
+  id                    String    @id
+  accountId             String
+  providerId            String
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@index([userId])
+  @@map("account")
+}
+
+model Verification {
+  id         String   @id
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([identifier])
+  @@map("verification")
+}
+
+// ============================================================================
+// Nội dung
+// ============================================================================
+
+/// Phim lẻ (type = "movie") hoặc phim bộ (type = "tv").
+model Title {
+  id            String           @id @default(cuid())
+  type          String
+  slug          String           @unique
+  title         String
+  originalTitle String?
+  tagline       String?
+  overview      String?
+  releaseDate   DateTime?
+  year          Int?
+  /// Phút. Phim bộ: thời lượng trung bình mỗi tập.
+  runtime       Int?
+  /// P, K, T13, T16, T18
+  ageRating     String?
+  /// HD, FHD, 4K...
+  quality       String?
+  country       String?
+  language      String?
+  rating        Float            @default(0)
+  voteCount     Int              @default(0)
+  posterPath    String?
+  backdropPath  String?
+  logoPath      String?
+  trailerUrl    String?
+  tmdbId        Int?
+  imdbId        String?
+  /// draft | published
+  status        String           @default("draft")
+  /// Phim bộ: ongoing | completed
+  seriesStatus  String?
+  /// Phim bộ: tổng số tập dự kiến, để hiện "Tập 5/12"
+  totalEpisodes Int?
+  featured      Boolean          @default(false)
+  /// Tên phim + tên gốc + diễn viên đã bỏ dấu, để tìm kiếm không dấu
+  searchText    String           @default("")
+  viewCount     Int              @default(0)
+  publishedAt   DateTime?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+  videoId       String?          @unique
+  video         Video?           @relation(fields: [videoId], references: [id], onDelete: SetNull)
+  genres        TitleGenre[]
+  credits       Credit[]
+  seasons       Season[]
+  watchlist     WatchlistItem[]
+  histories     WatchHistory[]
+  collections   CollectionItem[]
+  views         ViewEvent[]
+
+  @@unique([type, tmdbId])
+  @@index([type, status, publishedAt])
+  @@index([status, viewCount])
+}
+
+model Season {
+  id         String    @id @default(cuid())
+  titleId    String
+  title      Title     @relation(fields: [titleId], references: [id], onDelete: Cascade)
+  number     Int
+  name       String?
+  overview   String?
+  posterPath String?
+  airDate    DateTime?
+  episodes   Episode[]
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@unique([titleId, number])
+}
+
+model Episode {
+  id        String         @id @default(cuid())
+  seasonId  String
+  season    Season         @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  number    Int
+  name      String?
+  overview  String?
+  stillPath String?
+  runtime   Int?
+  airDate   DateTime?
+  videoId   String?        @unique
+  video     Video?         @relation(fields: [videoId], references: [id], onDelete: SetNull)
+  histories WatchHistory[]
+  views     ViewEvent[]
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+
+  @@unique([seasonId, number])
+}
+
+/// File video đã upload và kết quả xử lý (HLS, ảnh bìa, phụ đề...).
+model Video {
+  id             String     @id @default(cuid())
+  originalName   String
+  /// Đường dẫn tương đối trong MEDIA_ROOT/private
+  sourcePath     String?
+  size           BigInt     @default(0)
+  mimeType       String?
+  /// download_queued | downloading | queued | processing | ready | failed
+  status         String     @default("queued")
+  /// 0..100
+  progress       Float      @default(0)
+  /// probe | covers | subtitles | transcode | storyboard | done
+  stage          String?
+  error          String?
+  /// auto | copy | transcode
+  mode           String     @default("auto")
+  /// true: tự tạo ảnh bìa từ khung hình video; false: admin tự upload
+  autoCover      Boolean    @default(true)
+  duration       Float?
+  width          Int?
+  height         Int?
+  videoCodec     String?
+  audioCodec     String?
+  /// Đường dẫn tương đối trong MEDIA_ROOT/public
+  hlsPath        String?
+  /// JSON: [{ name, height, bandwidth }]
+  renditions     String?
+  /// JSON: [{ path, time }] — các khung hình ứng viên làm ảnh bìa
+  frames         String?
+  storyboardPath String?
+  /// Link trang nguồn khi video được lấy về từ website khác (yt-dlp)
+  sourceUrl      String?
+  /// Tên website nguồn, ví dụ "YouTube"
+  sourceSite     String?
+  /// JSON: { quality, subtitles } dùng khi tải lại từ nguồn
+  downloadOptions String?
+  attempts       Int        @default(0)
+  startedAt      DateTime?
+  finishedAt     DateTime?
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+  subtitles      Subtitle[]
+  title          Title?
+  episode        Episode?
+
+  @@index([status, createdAt])
+}
+
+model Subtitle {
+  id        String   @id @default(cuid())
+  videoId   String
+  video     Video    @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  lang      String
+  label     String
+  /// Đường dẫn tương đối trong MEDIA_ROOT/public (.vtt)
+  path      String
+  isDefault Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
+
+model Genre {
+  id       String       @id @default(cuid())
+  name     String       @unique
+  slug     String       @unique
+  position Int          @default(0)
+  titles   TitleGenre[]
+}
+
+model TitleGenre {
+  titleId String
+  genreId String
+  title   Title  @relation(fields: [titleId], references: [id], onDelete: Cascade)
+  genre   Genre  @relation(fields: [genreId], references: [id], onDelete: Cascade)
+
+  @@id([titleId, genreId])
+  @@index([genreId])
+}
+
+model Person {
+  id          String   @id @default(cuid())
+  name        String
+  profilePath String?
+  biography   String?
+  tmdbId      Int?     @unique
+  credits     Credit[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([name])
+}
+
+model Credit {
+  id        String  @id @default(cuid())
+  titleId   String
+  personId  String
+  title     Title   @relation(fields: [titleId], references: [id], onDelete: Cascade)
+  person    Person  @relation(fields: [personId], references: [id], onDelete: Cascade)
+  /// cast | director | writer | producer
+  kind      String
+  character String?
+  order     Int     @default(0)
+
+  @@index([titleId, kind, order])
+  @@index([personId])
+}
+
+/// Hàng phim tuỳ chỉnh trên trang chủ do admin sắp xếp.
+model Collection {
+  id        String           @id @default(cuid())
+  name      String
+  slug      String           @unique
+  position  Int              @default(0)
+  active    Boolean          @default(true)
+  items     CollectionItem[]
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+}
+
+model CollectionItem {
+  collectionId String
+  titleId      String
+  position     Int        @default(0)
+  collection   Collection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+  title        Title      @relation(fields: [titleId], references: [id], onDelete: Cascade)
+
+  @@id([collectionId, titleId])
+}
+
+// ============================================================================
+// Người xem
+// ============================================================================
+
+model WatchlistItem {
+  userId    String
+  titleId   String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     Title    @relation(fields: [titleId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@id([userId, titleId])
+}
+
+model WatchHistory {
+  id        String   @id @default(cuid())
+  userId    String
+  titleId   String
+  episodeId String?
+  /// "<titleId>" cho phim lẻ, "<titleId>:<episodeId>" cho từng tập
+  mediaKey  String
+  position  Float    @default(0)
+  duration  Float    @default(0)
+  completed Boolean  @default(false)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     Title    @relation(fields: [titleId], references: [id], onDelete: Cascade)
+  episode   Episode? @relation(fields: [episodeId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, mediaKey])
+  @@index([userId, updatedAt])
+}
+
+/// Một lượt bắt đầu xem — dùng cho thống kê ở dashboard.
+model ViewEvent {
+  id        String   @id @default(cuid())
+  titleId   String
+  episodeId String?
+  userId    String?
+  title     Title    @relation(fields: [titleId], references: [id], onDelete: Cascade)
+  episode   Episode? @relation(fields: [episodeId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([titleId])
+}
+
+model Setting {
+  key   String @id
+  value String
+}

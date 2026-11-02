@@ -1,3 +1,5 @@
+"use client";
+
 import { siteConfig } from "@/config/site";
 import { Link, Tab, Tabs, TabsProps } from "@heroui/react";
 import { usePathname } from "next/navigation";

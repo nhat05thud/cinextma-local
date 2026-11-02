@@ -1,5 +1,4 @@
 @import "tailwindcss";
-@import "./lightbox.css";
 
 @plugin '../utils/hero.ts';
 @plugin "tailwindcss-motion";
@@ -11,7 +10,7 @@
 @theme {
   --animate-shine: shine 3s linear infinite;
 
-  --font-poppins: var(--font-poppins);
+  --font-saira: var(--font-saira);
 
   @keyframes shine {
     0% {

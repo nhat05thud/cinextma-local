@@ -36,3 +36,14 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# cinextma
+/data/
+/storage/
+/src/generated/
+/logs/
+*.db
+*.db-journal
+
+# IIS site folder do setup-iis.ps1 sinh ra
+/deploy/iis/site/
