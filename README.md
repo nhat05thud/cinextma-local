@@ -25,6 +25,7 @@ Giao diện dựa trên template [cinextma](https://github.com/wisnuwirayuda15/c
 **Quản trị (`/admin`)**
 - Thêm phim theo 4 cách:
   - **Lấy từ link** (yt-dlp): dán link video hoặc playlist (YouTube, Vimeo, Facebook, archive.org, link `.mp4`/`.m3u8`… hơn 1.000 website). Hệ thống nhận diện website, lấy tên phim, mô tả, ảnh, danh sách video; bạn chọn video cần lấy, server tự tải về rồi xử lý như video upload. Playlist có thể nhập thành **phim bộ** (mỗi video là một tập) hoặc **nhiều phim lẻ**. Video có DRM không tải được.
+  - Trang xem phim tự tạo link bằng JavaScript (video hiện dạng `blob:`): server mở **Chrome/Edge ẩn** (giống cách các công cụ tải video Twitter/X làm): cuộn hết trang để phần lazyload tải ra, tự sang trang *Xem phim* nếu đang ở trang thông tin, tìm khung trình phát, bấm phát rồi bắt link `.m3u8`/`.mpd`/`.mp4` từ lưu lượng mạng, từ JSON của API / HTML của iframe trình phát, và cả playlist đổi đuôi (`.png`, `.txt`). Trình duyệt ẩn không bật các công cụ DevTools mà trang chống F12 dò được. Trang có **nhiều video** (kể cả nằm tận chân trang): cuộn tới chân trang, bấm lần lượt từng trình phát rồi hiện danh sách để lấy hết một lần (thành phim bộ hoặc nhiều phim lẻ, mỗi video giữ Referer riêng); các mức chất lượng của cùng một video được gộp lại. Mất 10–90 giây. Quảng cáo bật tab mới / chuyển trang khi bấm đều bị chặn. Không dò được thì xem ảnh chụp `logs/sniff-last.jpg` và dòng `[sniff]` trong `logs/web.out.log`.
   - **Tạo nhanh từ file video:** kéo thả nhiều file, tên phim và năm được đoán từ tên file.
   - **Import từ TMDB:** lấy nội dung tiếng Việt, poster, diễn viên, trailer và danh sách tập.
   - **Nhập thủ công.**
@@ -175,6 +176,7 @@ Video sẽ hiện ở *Video & xử lý → Chưa gắn phim*, bấm *Gắn vào
 | `TRANSCODE_HEIGHTS` | Các mức của chế độ *Đa chất lượng*, ví dụ `1080,720,480` |
 | `WORKER_ENABLED` | `false` nếu chạy worker riêng bằng `npm run worker` |
 | `YTDLP_PATH`, `DENO_PATH` | Đường dẫn yt-dlp và Deno cho tính năng *Lấy từ link* (script IIS tự điền) |
+| `CHROME_PATH` | Chrome/Edge dùng để tự dò link `.m3u8` (để trống: tự tìm Chrome rồi Edge) |
 | `TMDB_ACCESS_TOKEN` | Tuỳ chọn (có thể nhập trong trang Cài đặt) |
 
 > **GPU NVIDIA:** ffmpeg 9 cần driver NVIDIA ≥ 610 cho `h264_nvenc`. Card đời cũ như GTX 970 không có driver này, nên hãy dùng `libx264` hoặc cài ffmpeg 7.x nếu muốn dùng GPU.
@@ -185,6 +187,7 @@ Video sẽ hiện ở *Video & xử lý → Chưa gắn phim*, bấm *Gắn vào
 |---|---|
 | Trang tự tải lại liên tục khi chạy `npm run dev` | Dừng dev server, xoá thư mục `.next` rồi chạy lại (cache Turbopack bị hỏng). Bản chạy trên IIS không bị. |
 | *Lấy từ link* báo lỗi với website vốn vẫn chạy | Website vừa đổi cấu trúc: vào **Admin → Cài đặt → yt-dlp → Cập nhật**. |
+| Không tự dò được link `.m3u8` | Trang có thể chặn trình duyệt tự động, cần đăng nhập hoặc dùng DRM. Lấy thủ công: F12 → Network, lọc `m3u8`, bấm phát, copy link dán vào kèm link trang ở ô *Trang chứa video*. |
 | Video báo lỗi "Không tìm thấy ffmpeg" | Đặt `FFMPEG_PATH`/`FFPROBE_PATH` là đường dẫn tuyệt đối trong `.env` rồi `nssm restart CinextmaWeb`. |
 | Không đăng nhập được khi truy cập bằng IP LAN | Thêm `http://<IP>:8080` vào `TRUSTED_ORIGINS` trong `.env` (thường không cần vì cùng origin). |
 | Thêm icon mới (`icon="mdi:..."`) không hiện khi không có internet | Chạy `npm run icons:sync` để đóng gói icon vào `src/lib/iconify-bundle.json`, rồi build lại. |

@@ -10,6 +10,11 @@ export const BLOB_HELP =
   "Hãy dán link của trang xem phim. Nếu vẫn không được: mở trang đó, nhấn F12 → tab Network → gõ “m3u8” vào ô lọc → bấm phát video → " +
   "chuột phải vào dòng .m3u8 → Copy → Copy URL, dán link đó vào đây và điền link trang vào ô “Trang chứa video”.";
 
+export const SNIFF_FAILED_HELP =
+  "Đã mở trang bằng trình duyệt ẩn và bấm phát nhưng không bắt được link video. Trang có thể chặn trình duyệt tự động, " +
+  "cần đăng nhập hoặc dùng DRM. Bạn vẫn có thể lấy link .m3u8 thủ công: F12 → Network, gõ “m3u8”, bấm phát rồi copy link dán vào đây " +
+  "(kèm link trang ở ô “Trang chứa video”).";
+
 export const NOT_FOUND_HELP =
   "Không tìm thấy video trên trang này — trang có thể dùng trình phát tự tạo link (blob:). " +
   "Mở trang, nhấn F12 → Network, gõ “m3u8” vào ô lọc, bấm phát video rồi copy link .m3u8 dán vào đây, kèm link trang ở ô “Trang chứa video”.";

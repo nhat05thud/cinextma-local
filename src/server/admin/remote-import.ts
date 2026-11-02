@@ -8,6 +8,8 @@ import { refreshSearchText, uniqueTitleSlug } from "./slug";
 
 export type RemoteImportItem = {
   url: string;
+  /** Referer riêng của video (trang có nhiều trình phát nhúng từ các nguồn khác nhau) */
+  referer?: string | null;
   title: string;
   season: number;
   episode: number;
@@ -42,7 +44,11 @@ const tryImage = (url: string | null, kind: "poster" | "backdrop" | "still") =>
  * Worker tự tải -> xử lý HLS -> gắn vào phim.
  */
 export async function importFromRemote(input: RemoteImportInput): Promise<{ titleId: string; count: number }> {
-  const items = input.items.map((item) => ({ ...item, url: validateRemoteUrl(item.url) }));
+  const items = input.items.map((item) => ({
+    ...item,
+    url: validateRemoteUrl(item.url),
+    referer: item.referer ? validateRemoteUrl(item.referer) : null,
+  }));
   if (!items.length) throw new Error("Chưa chọn video nào");
 
   // Mỗi video thành một phim lẻ riêng
@@ -104,7 +110,7 @@ export async function importFromRemote(input: RemoteImportInput): Promise<{ titl
         originalName: item.title.slice(0, 200),
         sourceUrl: item.url,
         sourceSite: input.site.slice(0, 100),
-        downloadOptions: JSON.stringify(options),
+        downloadOptions: JSON.stringify({ ...options, referer: item.referer ?? options.referer }),
         status: "download_queued",
         mode: ["auto", "copy", "transcode"].includes(input.mode) ? input.mode : "auto",
         // "source"/"none": không tự tạo ảnh từ khung hình (ảnh nguồn đã được điền ở trên)

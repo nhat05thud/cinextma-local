@@ -63,6 +63,7 @@ const RemoteImport: React.FC<RemoteImportProps> = ({ target, onDone }) => {
   const advancedVisible = showAdvanced || isMediaUrl(url) || !!referer;
   const [info, setInfo] = useState<RemoteInfo | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
+  const [switching, setSwitching] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -131,7 +132,7 @@ const RemoteImport: React.FC<RemoteImportProps> = ({ target, onDone }) => {
         : kind === "movies"
           ? { kind: "movies" }
           : { kind: "new", type: kind, title, year: year ? Number(year) : null, overview },
-      items: selected.map(({ url, title, season, episode, thumbnail }) => ({ url, title, season, episode, thumbnail })),
+      items: selected.map(({ url, referer, title, season, episode, thumbnail }) => ({ url, referer, title, season, episode, thumbnail })),
       thumbnail: info.thumbnail ?? selected[0]?.thumbnail ?? null,
       quality,
       cover,
@@ -148,6 +149,30 @@ const RemoteImport: React.FC<RemoteImportProps> = ({ target, onDone }) => {
       // Mở đúng tab có thanh tiến độ tải / xử lý
       router.push(kind === "movies" ? "/admin/videos?filter=active" : `/admin/titles/${result.data.titleId}?tab=${kind === "tv" ? "episodes" : "video"}`);
     }
+  };
+
+  /** Đổi sang link khác trong danh sách tự dò, giữ nguyên tên phim / ảnh / mô tả đã lấy từ trang. */
+  const switchTo = async (link: RemoteInfo["detected"][number]) => {
+    if (!info) return;
+    setSwitching(link.url);
+    const result = await analyzeRemoteUrl(link.url, link.referer ?? info.referer);
+    setSwitching(null);
+    if (!result.success || !result.data) {
+      addToast({ title: result.message ?? "Không dùng được link này", color: "danger" });
+      return;
+    }
+    const data = result.data;
+    setInfo({
+      ...data,
+      site: info.site,
+      siteKey: info.siteKey,
+      title: info.title,
+      description: info.description,
+      thumbnail: info.thumbnail ?? data.thumbnail,
+      year: info.year,
+      detected: info.detected,
+    });
+    setEntries(data.entries.map((e, i) => ({ ...e, title: entries[i]?.title ?? e.title, selected: target?.type === "movie" ? i === 0 : true })));
   };
 
   const setEntry = (index: number, patch: Partial<(typeof entries)[number]>) =>
@@ -197,7 +222,8 @@ const RemoteImport: React.FC<RemoteImportProps> = ({ target, onDone }) => {
 
       {analyzing && (
         <div className="text-foreground-500 flex items-center gap-2 text-sm">
-          <Spinner size="sm" /> Đang đọc trang, có thể mất 10–30 giây...
+          <Spinner size="sm" /> Đang đọc trang... Nếu trang tạo link video bằng JavaScript, máy chủ sẽ mở trình duyệt ẩn, cuộn hết
+          trang và bấm phát để tự dò link .m3u8 — có thể mất khoảng 1 phút.
         </div>
       )}
       {error && (
@@ -252,6 +278,45 @@ const RemoteImport: React.FC<RemoteImportProps> = ({ target, onDone }) => {
             </div>
           </div>
 
+          {info.detected.length > 0 && !info.isPlaylist && (
+            <div className="bg-content2 flex flex-col gap-2 rounded-xl p-3 text-sm">
+              <p className="flex items-center gap-1 font-medium">
+                <Icon icon="mdi:radar" fontSize={18} />
+                Tự dò được {info.detected.length} link video (trình duyệt ẩn đã cuộn trang, bấm phát và đọc dữ liệu trang). Link đầu
+                tiên thường là đúng nhất.
+              </p>
+              {info.detected.map((link) => (
+                <div key={link.url} className="flex items-center gap-2">
+                  <Chip size="sm" variant="flat" color={link.kind === "hls" ? "primary" : "default"}>
+                    {link.kind.toUpperCase()}
+                  </Chip>
+                  {link.master && (
+                    <Chip size="sm" variant="flat" color="success">
+                      Nhiều chất lượng
+                    </Chip>
+                  )}
+                  {link.fromBody && (
+                    <Chip size="sm" variant="flat" color="warning" title="Link nằm trong dữ liệu/API của trang nhưng trình phát chưa tải — có thể là tập khác">
+                      Thấy trong dữ liệu trang
+                    </Chip>
+                  )}
+                  <span className="text-foreground-500 min-w-0 flex-1 truncate font-mono text-xs" title={link.url}>
+                    {link.url}
+                  </span>
+                  {link.url === info.url ? (
+                    <Chip size="sm" color="primary" startContent={<Icon icon="mdi:check-circle" className="ml-1" />}>
+                      Đang dùng
+                    </Chip>
+                  ) : (
+                    <Button size="sm" variant="flat" isLoading={switching === link.url} isDisabled={!!switching} onPress={() => switchTo(link)}>
+                      Dùng link này
+                    </Button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
           {!target && kind !== "movies" && (
             <Textarea label="Nội dung (lấy từ mô tả trang nguồn, sửa nếu cần)" minRows={2} maxRows={6} value={overview} onValueChange={setOverview} />
           )}
@@ -261,6 +326,12 @@ const RemoteImport: React.FC<RemoteImportProps> = ({ target, onDone }) => {
               <div className="flex items-center justify-between">
                 <p className="text-sm font-medium">
                   Chọn video ({selected.length}/{entries.length})
+                  {info.detected.length > 0 && (
+                    <span className="text-foreground-500 ml-2 text-xs font-normal">
+                      <Icon icon="mdi:radar" className="mr-1 inline" />
+                      Tự dò được trên trang (đã cuộn hết trang và bấm từng trình phát)
+                    </span>
+                  )}
                 </p>
                 <div className="flex gap-1">
                   <Button size="sm" variant="light" onPress={() => setEntries((all) => all.map((e) => ({ ...e, selected: true })))}>

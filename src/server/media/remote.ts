@@ -7,7 +7,8 @@ import { run } from "./ffmpeg";
 import { JobCancelledError, videoBaseDir } from "./pipeline";
 import { resolveLanguage } from "./subtitles";
 import { parseEpisodeFromName, parseMovieFileName } from "@/lib/filename";
-import { BLOB_HELP, NOT_FOUND_HELP, isBlobUrl } from "@/lib/remote-help";
+import { BLOB_HELP, NOT_FOUND_HELP, SNIFF_FAILED_HELP, isBlobUrl, isMediaUrl } from "@/lib/remote-help";
+import { sniffMedia, type SniffResult, type SniffedMedia } from "./sniff";
 
 /*
  * Lấy video từ website khác bằng yt-dlp (hỗ trợ hơn 1000 website + link file video trực tiếp).
@@ -16,6 +17,8 @@ import { BLOB_HELP, NOT_FOUND_HELP, isBlobUrl } from "@/lib/remote-help";
 
 export type RemoteEntry = {
   url: string;
+  /** Referer riêng của video này (trang có nhiều trình phát nhúng từ các nguồn khác nhau) */
+  referer?: string | null;
   title: string;
   duration: number | null;
   thumbnail: string | null;
@@ -27,6 +30,8 @@ export type RemoteInfo = {
   url: string;
   /** Trang chứa video, gửi kèm làm Referer khi tải (chống hotlink) */
   referer: string | null;
+  /** Các link video bắt được bằng trình duyệt ẩn (khi trang tạo link bằng JavaScript) */
+  detected: Pick<SniffedMedia, "url" | "referer" | "kind" | "master" | "fromBody">[];
   site: string;
   siteKey: string;
   title: string;
@@ -124,8 +129,7 @@ async function readPage(pageUrl: string): Promise<PageInfo | null> {
         new RegExp(`<meta[^>]+content=["']([^"']*)["'][^>]*(?:property|name)=["']${name}["']`, "i").exec(html)
       )?.[1] ?? null;
     const rawTitle = meta("og:title") ?? /<title[^>]*>([^<]*)/i.exec(html)?.[1] ?? null;
-    // "Tên phim - Tên website" / "Tên phim | Website" -> "Tên phim"
-    const title = rawTitle ? decodeEntities(rawTitle).split(/\s+[|–—-]\s+/)[0].trim() || null : null;
+    const title = rawTitle ? cleanPageTitle(decodeEntities(rawTitle)) : null;
     const image = meta("og:image");
     const description = meta("og:description") ?? meta("description");
     const media = [
@@ -177,6 +181,7 @@ type YtEntry = {
   thumbnails?: { url: string; width?: number }[];
   season_number?: number;
   episode_number?: number;
+  formats?: { url?: string }[];
 };
 
 const bestThumbnail = (entry: YtEntry) =>
@@ -184,16 +189,48 @@ const bestThumbnail = (entry: YtEntry) =>
   [...(entry.thumbnails ?? [])].sort((a, b) => (b.width ?? 0) - (a.width ?? 0))[0]?.url ??
   null;
 
+/** "Xem Tên phim - Full | Website" -> "Tên phim" */
+const cleanPageTitle = (raw: string) =>
+  raw
+    .split(/\s+[|–—-]\s+/)[0]
+    .replace(/^\s*(xem phim|xem|watch)\s+/i, "")
+    .trim() || null;
+
+/** Báo lỗi kèm những gì trình duyệt ẩn đã thấy, để biết vì sao không dò được. */
+const sniffFailedMessage = (sniffed: SniffResult, pageUrl: string) => {
+  if (sniffed.challenge) {
+    return (
+      `Trang đang bật xác minh chống bot (“${sniffed.title}”, ô “Xác minh bạn là con người”) nên máy chủ không vào được. ` +
+      "Hãy mở trang bằng trình duyệt của bạn, xác minh, rồi dán vào đây link bài gốc (ví dụ link tweet x.com/…/status/…, " +
+      "YouTube…) hoặc link .m3u8/.mp4 copy từ F12 → Network (kèm link trang ở ô “Trang chứa video”)."
+    );
+  }
+  const seen = [
+    sniffed.title ? `trang “${sniffed.title}”` : "trang không có tiêu đề",
+    sniffed.finalUrl !== pageUrl ? `đã chuyển tới ${sniffed.finalUrl}` : null,
+    sniffed.players.length ? `có ${sniffed.players.length} khung trình phát (${sniffed.players.join(", ")})` : "không thấy khung trình phát",
+    `${sniffed.frames} khung nhúng`,
+  ].filter(Boolean);
+  return `${SNIFF_FAILED_HELP} (Trình duyệt ẩn thấy: ${seen.join(", ")}.)`;
+};
+
 /** Đọc thông tin video / playlist từ link (không tải video). */
 export async function analyzeRemote(raw: string, refererRaw?: string | null): Promise<RemoteInfo> {
   let url = validateRemoteUrl(raw);
   let referer = refererRaw?.trim() ? validateRemoteUrl(refererRaw) : null;
   let page: PageInfo | null = null;
+  /** Trang dùng để lấy tên phim / ảnh / mô tả (khác Referer khi trình phát nằm trong iframe) */
+  let metaPage: string | null = null;
+  let detected: SniffedMedia[] = [];
+  let sniffedTitle: string | null = null;
 
-  const probe = async (target: string) => {
+  /** Nhiều video tự dò được trên cùng trang (đã kiểm tra bằng yt-dlp), theo thứ tự trên trang */
+  let multi: { media: SniffedMedia; data: Awaited<ReturnType<typeof probe>> }[] = [];
+
+  const probe = async (target: string, ref = referer) => {
     const { stdout } = await run(
       serverEnv.ytdlpPath,
-      [...baseArgs(), ...refererArgs(referer), "-J", "--flat-playlist", "--no-warnings", "--playlist-end", "300", "--", target],
+      [...baseArgs(), ...refererArgs(ref), "-J", "--flat-playlist", "--no-warnings", "--playlist-end", "300", "--", target],
       { signal: AbortSignal.timeout(120_000) },
     );
     return JSON.parse(stdout) as YtEntry & {
@@ -210,18 +247,59 @@ export async function analyzeRemote(raw: string, refererRaw?: string | null): Pr
   try {
     data = await probe(url);
   } catch (error) {
-    if (!/Unsupported URL/i.test(String(error))) throw new Error(friendlyError(error));
-    // yt-dlp không nhận ra trang -> tự dò link video lộ trong HTML, dùng trang làm Referer
-    page = await readPage(url);
-    const found = rankMedia(page?.media ?? [])[0];
-    if (!found) throw new Error(NOT_FOUND_HELP);
-    referer = url;
-    url = found;
-    try {
-      data = await probe(url);
-    } catch (inner) {
-      throw new Error(friendlyError(inner));
+    // Trang yt-dlp không hỗ trợ, hoặc bộ đọc chung bị chặn (403 Cloudflare...) -> tự tìm link video
+    if (!/Unsupported URL|\[generic\]/i.test(String(error)) || isMediaUrl(url)) throw new Error(friendlyError(error));
+    // yt-dlp không nhận ra trang -> 1) tìm link video lộ trong HTML
+    const pageUrl = url;
+    page = await readPage(pageUrl);
+    let candidates: SniffedMedia[] = rankMedia(page?.media ?? []).map((link) => ({
+      url: link,
+      referer: pageUrl,
+      kind: /\.m3u8/i.test(link) ? "hls" : /\.mpd/i.test(link) ? "dash" : "mp4",
+      master: /master\.m3u8/i.test(link),
+      size: 0,
+      fromBody: false,
+    }));
+    if (!candidates.length) {
+      // 2) link do JavaScript tạo lúc chạy (video hiện dạng blob:): mở trang bằng trình duyệt ẩn, cuộn hết trang,
+      //    bấm lần lượt mọi trình phát, bắt request mạng
+      const sniffed = await sniffMedia(pageUrl).catch((e: Error) => {
+        throw new Error(`Không tự dò được video: ${e.message}`);
+      });
+      if (!sniffed.media.length) throw new Error(sniffFailedMessage(sniffed, pageUrl));
+      detected = sniffed.media;
+      sniffedTitle = sniffed.title;
+      candidates = sniffed.media;
     }
+    metaPage = pageUrl;
+
+    // Kiểm tra từng link bằng yt-dlp (song song, tối đa 4): lấy thời lượng, bỏ link hỏng / hết hạn,
+    // bỏ playlist con đã nằm trong playlist tổng của link khác
+    const checked: typeof multi = [];
+    let firstError: unknown = null;
+    const queue = candidates.slice(0, 15);
+    let next = 0;
+    await Promise.all(
+      Array.from({ length: Math.min(4, queue.length) }, async () => {
+        while (next < queue.length) {
+          const media = queue[next++];
+          const result = await probe(media.url, media.referer ?? pageUrl).catch((e) => {
+            firstError ??= e;
+            return null;
+          });
+          if (result) checked.push({ media, data: result });
+        }
+      }),
+    );
+    checked.sort((a, b) => queue.indexOf(a.media) - queue.indexOf(b.media));
+    const key = (link: string) => link.replace(/[?#].*$/, "");
+    multi = checked.filter(
+      (item) => !checked.some((other) => other !== item && (other.data.formats ?? []).some((f) => f.url && key(f.url) === key(item.media.url))),
+    );
+    if (!multi.length) throw new Error(friendlyError(firstError));
+    data = multi[0].data;
+    url = multi[0].media.url;
+    referer = multi[0].media.referer ?? pageUrl;
   }
 
   const siteKey = (data.extractor_key ?? "generic").toLowerCase();
@@ -229,17 +307,22 @@ export async function analyzeRemote(raw: string, refererRaw?: string | null): Pr
     siteKey === "generic"
       ? `Link trực tiếp (${referer ? new URL(referer).hostname : (data.webpage_url_domain ?? new URL(url).hostname)})`
       : (SITE_NAMES[siteKey] ?? (data.extractor_key ?? "").replace(/(Tab|Playlist|Channel|User)$/, ""));
-  const isPlaylist = data._type === "playlist";
+  // Trang có nhiều trình phát -> coi như playlist để chọn lấy hết một lần
+  const fromPage = multi.length > 1;
+  const isPlaylist = data._type === "playlist" || fromPage;
 
-  const raws: YtEntry[] = isPlaylist
-    ? (data.entries ?? []).filter((e) => e && e._type !== "playlist" && (e.url ?? e.webpage_url)?.startsWith("http"))
-    : [{ ...data, url: data.webpage_url ?? url }];
+  const raws: (YtEntry & { referer?: string | null })[] = fromPage
+    ? multi.map(({ media, data: item }) => ({ ...item, url: media.url, referer: media.referer ?? referer, title: undefined }))
+    : isPlaylist
+      ? (data.entries ?? []).filter((e) => e && e._type !== "playlist" && (e.url ?? e.webpage_url)?.startsWith("http"))
+      : [{ ...data, url: data.webpage_url ?? url }];
 
-  const entries = raws.map((entry, index) => {
+  const entries: RemoteEntry[] = raws.map((entry, index) => {
     const title = (entry.title ?? `Video ${index + 1}`).trim();
     const guess = parseEpisodeFromName(title, 1, index + 1);
     return {
       url: (entry.url ?? entry.webpage_url)!,
+      ...(entry.referer ? { referer: entry.referer } : {}),
       title: siteKey === "generic" ? parseMovieFileName(title).title : title,
       duration: entry.duration ? Math.round(entry.duration) : null,
       thumbnail: bestThumbnail(entry),
@@ -257,20 +340,23 @@ export async function analyzeRemote(raw: string, refererRaw?: string | null): Pr
   let thumbnail: string | null = bestThumbnail(data) ?? entries[0]?.thumbnail ?? null;
 
   // Link .m3u8/.mp4 thường chỉ tên "index"/"master": lấy tên phim, ảnh, mô tả từ trang chứa video
-  if (siteKey === "generic" && referer) {
-    page ??= await readPage(referer);
-    if (page?.title) {
-      const fromPage = parseMovieFileName(page.title);
-      title = fromPage.title;
-      if (!isPlaylist && entries[0]) entries[0].title = fromPage.title;
+  if (siteKey === "generic" && (metaPage ?? referer)) {
+    page ??= await readPage((metaPage ?? referer)!);
+    const pageTitle = page?.title ?? (sniffedTitle ? cleanPageTitle(sniffedTitle) : null);
+    if (pageTitle) {
+      title = parseMovieFileName(pageTitle).title;
+      if (!isPlaylist && entries[0]) entries[0].title = title;
     }
     description ??= page?.description ?? null;
     thumbnail ??= page?.image ?? null;
   }
+  // Video lấy từ các trình phát trên cùng trang: đặt tên theo tên phim
+  if (fromPage) entries.forEach((e, i) => (e.title = `${title} - Video ${i + 1}`));
 
   return {
     url,
     referer,
+    detected: detected.map(({ url, referer, kind, master, fromBody }) => ({ url, referer, kind, master, fromBody })),
     site,
     siteKey,
     title,

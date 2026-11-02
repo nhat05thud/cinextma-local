@@ -30,7 +30,7 @@ type RunOptions = {
 };
 
 /** Dừng tiến trình kèm mọi tiến trình con (yt-dlp sinh ffmpeg con khi ghép/tải HLS). */
-const killTree = (pid: number | undefined) => {
+export const killTree = (pid: number | undefined) => {
   if (!pid) return;
   if (process.platform === "win32") {
     spawn("taskkill", ["/pid", String(pid), "/T", "/F"], { windowsHide: true }).on("error", () => undefined);
