@@ -46,6 +46,13 @@ export const useUploads = () => {
 const CHUNK_SIZE = 50 * 1024 * 1024;
 
 /**
+ * Mã riêng cho mỗi file trong hàng đợi. Không dùng crypto.randomUUID(): trình duyệt chỉ có hàm này trên HTTPS /
+ * localhost, còn site chạy http://cinextma.local hoặc IP LAN.
+ */
+let uploadSeq = 0;
+const uploadId = () => `${Date.now().toString(36)}-${(++uploadSeq).toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+
+/**
  * Hàng đợi upload video (giao thức tus): tải lần lượt từng file, tự thử lại khi rớt mạng,
  * có thể tiếp tục sau khi tải lại trang. Nằm ở layout admin nên vẫn chạy khi chuyển trang trong admin.
  */
@@ -136,7 +143,7 @@ export const UploadProvider: React.FC<React.PropsWithChildren> = ({ children }) 
           ...current,
           ...requests.map((r) => ({
             ...r,
-            id: crypto.randomUUID(),
+            id: uploadId(),
             status: "queued" as const,
             progress: 0,
             bytesUploaded: 0,

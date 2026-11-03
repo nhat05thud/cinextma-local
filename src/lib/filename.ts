@@ -8,7 +8,8 @@ export const parseMovieFileName = (name: string) => {
   base = base
     .replace(/\b(2160p|1080p|720p|480p|4k|uhd|hdr|bluray|blu-ray|web-?dl|webrip|hdtv|dvdrip|x26[45]|h ?26[45]|hevc|aac|ac3|dts|vietsub|thuyet minh|long tieng)\b.*$/i, "")
     .replace(/[[(].*?[\])]/g, "")
-    .replace(/\s+-\s*$/, "")
+    // Cắt ở năm "Tên (2024)" / "Tên [2024]" / "Tên - 2024" còn sót ngoặc mở / gạch nối ở cuối
+    .replace(/[\s([{\-–—,]+$/, "")
     .replace(/\s+/g, " ")
     .trim();
   return { title: base || name, year: year ? Number(year[1]) : null };
